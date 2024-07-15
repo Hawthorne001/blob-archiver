@@ -24,10 +24,12 @@ type S3Config struct {
 	Endpoint string
 	UseHttps bool
 	Bucket   string
+	Path     string
 
 	S3CredentialType S3CredentialType
 	AccessKey        string
 	SecretAccessKey  string
+	Compress         bool
 }
 
 func (c S3Config) check() error {
@@ -59,6 +61,7 @@ func (c S3Config) check() error {
 type BeaconConfig struct {
 	BeaconURL           string
 	BeaconClientTimeout time.Duration
+	EnforceJSON         bool
 }
 
 type StorageConfig struct {
@@ -73,6 +76,7 @@ func NewBeaconConfig(cliCtx *cli.Context) BeaconConfig {
 	return BeaconConfig{
 		BeaconURL:           cliCtx.String(BeaconHttpFlagName),
 		BeaconClientTimeout: timeout,
+		EnforceJSON:         cliCtx.Bool(BeaconHttpEnforceJson),
 	}
 }
 
@@ -103,7 +107,9 @@ func readS3Config(ctx *cli.Context) S3Config {
 		SecretAccessKey:  ctx.String(S3SecretAccessKeyFlagName),
 		UseHttps:         ctx.Bool(S3EndpointHttpsFlagName),
 		Bucket:           ctx.String(S3BucketFlagName),
+		Path:             ctx.String(S3PathFlagName),
 		S3CredentialType: toS3CredentialType(ctx.String(S3CredentialTypeFlagName)),
+		Compress:         ctx.Bool(S3CompressFlagName),
 	}
 }
 

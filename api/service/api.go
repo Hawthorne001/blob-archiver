@@ -15,6 +15,7 @@ import (
 	"github.com/attestantio/go-eth2-client/api"
 	"github.com/attestantio/go-eth2-client/spec/deneb"
 	m "github.com/base-org/blob-archiver/api/metrics"
+	"github.com/base-org/blob-archiver/api/version"
 	"github.com/base-org/blob-archiver/common/storage"
 	opmetrics "github.com/ethereum-optimism/optimism/op-service/metrics"
 	"github.com/ethereum/go-ethereum/common"
@@ -39,8 +40,9 @@ func (e httpError) Error() string {
 }
 
 const (
-	sszAcceptType = "application/octet-stream"
-	serverTimeout = 60 * time.Second
+	jsonAcceptType = "application/json"
+	sszAcceptType  = "application/octet-stream"
+	serverTimeout  = 60 * time.Second
 )
 
 var (
@@ -97,6 +99,7 @@ func NewAPI(dataStoreClient storage.DataStoreReader, beaconClient client.BeaconB
 	r.Use(middleware.Timeout(serverTimeout))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Heartbeat("/healthz"))
+	r.Use(middleware.Compress(5, jsonAcceptType, sszAcceptType))
 
 	recorder := opmetrics.NewPromHTTPRecorder(metrics.Registry(), m.MetricsNamespace)
 	r.Use(func(handler http.Handler) http.Handler {
@@ -104,6 +107,7 @@ func NewAPI(dataStoreClient storage.DataStoreReader, beaconClient client.BeaconB
 	})
 
 	r.Get("/eth/v1/beacon/blob_sidecars/{id}", result.blobSidecarHandler)
+	r.Get("/eth/v1/node/version", result.versionHandler)
 
 	return result
 }
@@ -124,6 +128,17 @@ func isSlot(id string) bool {
 
 func isKnownIdentifier(id string) bool {
 	return slices.Contains([]string{"genesis", "finalized", "head"}, id)
+}
+
+// versionHandler implements the /eth/v1/node/version endpoint.
+func (a *API) versionHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", jsonAcceptType)
+	w.WriteHeader(http.StatusOK)
+	err := json.NewEncoder(w).Encode(version.APIVersion)
+	if err != nil {
+		a.logger.Error("unable to encode version to JSON", "err", err)
+		errServerError.write(w)
+	}
 }
 
 // toBeaconBlockHash converts a string that can be a slot, hash or identifier to a beacon block hash.
@@ -164,7 +179,7 @@ func (a *API) blobSidecarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, storageErr := a.dataStoreClient.Read(r.Context(), beaconBlockHash)
+	result, storageErr := a.dataStoreClient.ReadBlob(r.Context(), beaconBlockHash)
 	if storageErr != nil {
 		if errors.Is(storageErr, storage.ErrNotFound) {
 			errUnknownBlock.write(w)
@@ -177,7 +192,7 @@ func (a *API) blobSidecarHandler(w http.ResponseWriter, r *http.Request) {
 
 	blobSidecars := result.BlobSidecars
 
-	filteredBlobSidecars, err := filterBlobs(blobSidecars.Data, r.URL.Query().Get("indices"))
+	filteredBlobSidecars, err := filterBlobs(blobSidecars.Data, r.URL.Query()["indices"])
 	if err != nil {
 		err.write(w)
 		return
@@ -187,6 +202,7 @@ func (a *API) blobSidecarHandler(w http.ResponseWriter, r *http.Request) {
 	responseType := r.Header.Get("Accept")
 
 	if responseType == sszAcceptType {
+		w.Header().Set("Content-Type", sszAcceptType)
 		res, err := blobSidecars.MarshalSSZ()
 		if err != nil {
 			a.logger.Error("unable to marshal blob sidecars to SSZ", "err", err)
@@ -202,6 +218,7 @@ func (a *API) blobSidecarHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
+		w.Header().Set("Content-Type", jsonAcceptType)
 		err := json.NewEncoder(w).Encode(blobSidecars)
 		if err != nil {
 			a.logger.Error("unable to encode blob sidecars to JSON", "err", err)
@@ -213,18 +230,18 @@ func (a *API) blobSidecarHandler(w http.ResponseWriter, r *http.Request) {
 
 // filterBlobs filters the blobs based on the indices query provided.
 // If no indices are provided, all blobs are returned. If invalid indices are provided, an error is returned.
-func filterBlobs(blobs []*deneb.BlobSidecar, indices string) ([]*deneb.BlobSidecar, *httpError) {
-	if indices == "" {
+func filterBlobs(blobs []*deneb.BlobSidecar, _indices []string) ([]*deneb.BlobSidecar, *httpError) {
+	var indices []string
+	if len(_indices) == 0 {
 		return blobs, nil
-	}
-
-	splits := strings.Split(indices, ",")
-	if len(splits) == 0 {
-		return blobs, nil
+	} else if len(_indices) == 1 {
+		indices = strings.Split(_indices[0], ",")
+	} else {
+		indices = _indices
 	}
 
 	indicesMap := map[deneb.BlobIndex]struct{}{}
-	for _, index := range splits {
+	for _, index := range indices {
 		parsedInt, err := strconv.ParseUint(index, 10, 64)
 		if err != nil {
 			return nil, newIndicesError(index)

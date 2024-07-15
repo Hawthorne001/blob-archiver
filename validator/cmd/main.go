@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/base-org/blob-archiver/api/flags"
-	"github.com/base-org/blob-archiver/api/metrics"
-	"github.com/base-org/blob-archiver/api/service"
 	"github.com/base-org/blob-archiver/common/beacon"
-	"github.com/base-org/blob-archiver/common/storage"
+	"github.com/base-org/blob-archiver/validator/flags"
+	"github.com/base-org/blob-archiver/validator/service"
 	opservice "github.com/ethereum-optimism/optimism/op-service"
 	"github.com/ethereum-optimism/optimism/op-service/cliapp"
 	oplog "github.com/ethereum-optimism/optimism/op-service/log"
@@ -29,9 +27,9 @@ func main() {
 	app := cli.NewApp()
 	app.Flags = cliapp.ProtectFlags(flags.Flags)
 	app.Version = opservice.FormatVersion(Version, GitCommit, GitDate, "")
-	app.Name = "blob-api"
-	app.Usage = "API service for Ethereum blobs"
-	app.Description = "Service for fetching blob sidecars from a datastore"
+	app.Name = "blob-validator"
+	app.Usage = "Job that checks the validity of blobs"
+	app.Description = "The blob-validator is a job that checks the validity of blobs"
 	app.Action = cliapp.LifecycleCmd(Main())
 
 	err := app.Run(os.Args)
@@ -53,20 +51,14 @@ func Main() cliapp.LifecycleAction {
 		oplog.SetGlobalLogHandler(l.Handler())
 		opservice.ValidateEnvVars(flags.EnvVarPrefix, flags.Flags, l)
 
-		m := metrics.NewMetrics()
-
-		storageClient, err := storage.NewStorage(cfg.StorageConfig, l)
+		headerClient, err := beacon.NewBeaconClient(cliCtx.Context, cfg.BeaconConfig)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize storage: %w", err)
+			return nil, fmt.Errorf("failed to create beacon client: %w", err)
 		}
 
-		beaconClient, err := beacon.NewBeaconClient(context.Background(), cfg.BeaconConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize beacon client: %w", err)
-		}
+		beaconClient := service.NewBlobSidecarClient(cfg.BeaconConfig.BeaconURL)
+		blobClient := service.NewBlobSidecarClient(cfg.BlobConfig.BeaconURL)
 
-		l.Info("Initializing API Service")
-		api := service.NewAPI(storageClient, beaconClient, m, l)
-		return service.NewService(l, api, cfg, m.Registry()), nil
+		return service.NewValidator(l, headerClient, beaconClient, blobClient, closeApp, cfg), nil
 	}
 }

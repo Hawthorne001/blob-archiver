@@ -1,6 +1,6 @@
 FROM golang:1.21.6-alpine3.19 as builder
 
-RUN apk add --no-cache make gcc musl-dev linux-headers jq bash
+RUN apk add --no-cache make gcc musl-dev linux-headers jq bash git
 
 WORKDIR /app
 
@@ -16,3 +16,4 @@ FROM alpine:3.19
 
 COPY --from=builder /app/archiver/bin/blob-archiver /usr/local/bin/blob-archiver
 COPY --from=builder /app/api/bin/blob-api /usr/local/bin/blob-api
+COPY --from=builder /app/validator/bin/blob-validator /usr/local/bin/blob-validator

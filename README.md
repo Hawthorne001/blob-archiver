@@ -10,10 +10,12 @@ allows clients to retrieve blobs from the storage backend
 There are currently two supported storage options:
 
 * On-disk storage - Blobs are written to disk in a directory
-* S3 storage - Blobs are written to an S3 bucket
+* S3 storage - Blobs are written to an S3 bucket (or compatible service)
 
 You can control which storage backend is used by setting the `BLOB_API_DATA_STORE` and `BLOB_ARCHIVER_DATA_STORE` to 
-either `disk` or `s3`.
+either `file` or `s3`.
+
+The `s3` backend will also work with (for example) Google Cloud Storage buckets (instructions [here](https://medium.com/google-cloud/using-google-cloud-storage-with-minio-object-storage-c994fe4aab6b)). 
 
 ### Data Validity
 Currently, the archiver and api do not validate the beacon node's data. Therefore, it's important to either trust the 
@@ -44,7 +46,7 @@ To run the project locally, you should first copy `.env.template` to `.env` and 
 to your beacon client and storage backend of choice. Then you can run the project with:
 
 ```sh
-docker-compose up
+docker compose up
 ```
 
 You can see a full list of configuration options by running:
